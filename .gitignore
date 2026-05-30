@@ -48,3 +48,10 @@ data/labels_backup_*/
 *.log
 log/
 logs/
+
+# секреты — никогда в git
+keys.txt
+.env
+*.pem
+*.key
+clearml.conf
