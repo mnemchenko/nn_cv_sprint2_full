@@ -196,32 +196,47 @@ R50-d8 — золотая середина: сильнее R18 (больше pre
 
 ### Запуск на ВМ
 
-Чтобы ревьюер мог воспроизвести и чтобы экономить GPU-время, всё подготовлено
-заранее.
-
-**Вариант A — ноутбук-оркестратор** ([`practicum_work/train.ipynb`](practicum_work/train.ipynb)):
-открыть на ВМ, Run All — пройдёт установку, sanity-check, обучение бейзлайна
-и анализ на test. ClearML-ссылка печатается в первых строках вывода ячейки обучения.
-
-**Вариант B — CLI.** Из корня проекта:
+ВМ Яндекс Практикума: Tesla T4 / Ubuntu / CUDA 11.8 / Python 3.10. Версии
+зафиксированы по уроку «Получение ВМ»: PyTorch 2.0.0+cu118, mmcv==2.1.0,
+numpy==1.26.4, clearml==2.0.2 (mmcv≥2.2 не поддерживается mmsegmentation; numpy 2.x
+ломает mmseg).
 
 ```bash
-# 1) один раз — установка стека
-bash practicum_work/setup_vm.sh
-clearml-init                       # вставить creds с app.clear.ml/profile
+# 0) подключиться к ВМ по SSH (рекомендуем VSCode Remote-SSH из урока)
+ssh -i ~/.ssh/user_key ubuntu@<vm-ip>
 
-# 2) проверка готовности конфига (не запускает обучение)
+# 1) перенести код на ВМ: git clone репозитория проекта
+git clone git@github.com:<your>/nn_cv_sprint2_full.git
+cd nn_cv_sprint2_full
+# датасет передаём отдельно (с локалки, ~32 MB):
+#   scp -i ~/.ssh/user_key -r data/segmentation_dataset ubuntu@<vm-ip>:~/nn_cv_sprint2_full/data/
+
+# 2) создать и активировать venv (рекомендация урока)
+python3.10 -m venv ~/practicum_venv
+source ~/practicum_venv/bin/activate
+
+# 3) установить весь стек (точные версии по уроку: torch 2.0.0+cu118, mmcv==2.1.0)
+bash practicum_work/setup_vm.sh
+clearml-init                       # вставить creds из локального keys.txt
+
+# 4) проверка готовности конфига (не запускает обучение)
 python practicum_work/sanity_check.py configs/deeplabv3plus_practice/deeplabv3plus_r50-d8_1xb16-practice_dataset-256x256.py
 
-# 3) запуск обучения бейзлайна (~30-45 мин на одном GPU по бенчмарку урока)
+# 5) запуск обучения бейзлайна (~30-45 мин на одном T4 по бенчмарку урока)
 python tools/train.py configs/deeplabv3plus_practice/deeplabv3plus_r50-d8_1xb16-practice_dataset-256x256.py
 
-# 4) анализ качества лучшего чекпойнта на test
+# 6) анализ качества лучшего чекпойнта на test
 python practicum_work/src/analysis/per_image_dice.py \
     --config configs/deeplabv3plus_practice/deeplabv3plus_r50-d8_1xb16-practice_dataset-256x256.py \
     --checkpoint work_dirs/deeplabv3plus_r50-d8_1xb16-practice_dataset-256x256/best_mDice_epoch_*.pth \
     --split test --out practicum_work/supplementary/viz/test_deeplab --n 5
 ```
+
+**Альтернатива через ноутбук-оркестратор** ([`practicum_work/train.ipynb`](practicum_work/train.ipynb)):
+шаги 0–3 (SSH + venv + setup + clearml-init) делаются один раз в терминале ВМ,
+затем открыть ноутбук в VSCode Remote-SSH и выбрать kernel из созданного venv —
+ячейки выполняют sanity-check, обучение и анализ. ClearML-ссылка печатается в
+первых строках вывода ячейки обучения.
 
 ## Этап 3. Эксперименты по улучшению качества
 
