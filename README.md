@@ -402,50 +402,180 @@ DeepLabV3+ ResNet50-d8 с CE+Dice 1:1, лёгкими аугментациями
 
 ### Примеры корректных предсказаний (тестовый датасет)
 
-5 семплов с самым высоким per-image mDice — в папке
+Триплеты `image | GT | prediction` (palette: красный = cat, зелёный = dog).
+Все 5 best-семплов — в
 [`practicum_work/supplementary/viz/test_baseline/best/`](practicum_work/supplementary/viz/test_baseline/best/).
-Триплеты вида `image | GT | prediction` (palette: красный = cat, зелёный = dog).
+
+![best #0 — кошка на тумбе, mDice = 0.983](practicum_work/supplementary/viz/test_baseline/best/best_00_000000406211_2388.png)
+
+![best #1 — крупный кадр кошки, mDice = 0.977](practicum_work/supplementary/viz/test_baseline/best/best_01_000000556500_5818.png)
+
+![best #2 — кошка на бойлере, mDice = 0.977](practicum_work/supplementary/viz/test_baseline/best/best_02_000000414495_3471.png)
+
+**Общее у best-кадров:** крупный животный объект, занимающий ~20–40% кадра,
+хороший контраст с фоном, ясный силуэт. На таких сценах модель выдаёт
+почти идеальный контур.
 
 ### Примеры ошибок (тестовый датасет)
 
-5 семплов с самым низким per-image mDice — в папке
+Все 5 worst — в
 [`practicum_work/supplementary/viz/test_baseline/worst/`](practicum_work/supplementary/viz/test_baseline/worst/).
+
+![worst #0 — человек с маленькой кошкой → модель красит человека как dog, mDice = 0.329](practicum_work/supplementary/viz/test_baseline/worst/worst_00_000000445187_3686.png)
+
+![worst #1 — мелкая кошка в коридоре, class confusion cat→dog, mDice = 0.332](practicum_work/supplementary/viz/test_baseline/worst/worst_01_000000284884_6459.png)
+
+![worst #2 — class confusion в тёмной сцене, mDice = 0.342](practicum_work/supplementary/viz/test_baseline/worst/worst_02_000000436539_4321.png)
+
+![worst #4 — человек и собака в снегу, модель красит человека как cat, mDice = 0.483](practicum_work/supplementary/viz/test_baseline/worst/worst_04_000000357542_1234.png)
+
+**Системная картина по 5 worst:**
+* **4 из 5 фейлов — семантика, а не контур.** Это либо
+  **class confusion cat↔dog** (worst #1, #2, #3), либо
+  **wrong object** — модель красит **человека как животное**, когда тот
+  визуально доминирует, а реальное животное мелкое и боковое (worst #0, #4).
+* Контурные ошибки (расплылась маска вокруг GT) встречаются, но дают потери
+  на 1–2 пункта Dice, а не 50 пунктов как у класс-confusion.
 
 ### Возможности для улучшения
 
-По анализу best/worst и сравнения с экспериментами Этапа 3 — направления,
-которые имеют шанс реально поднять mDice:
+Анализ worst-кадров + сравнение с экспериментами Этапа 3 → направления, которые
+с большой вероятностью реально поднимают mDice:
 
-1. **Per-image анализ Эксп. 1** показал, что усиленные аугментации улучшают
-   per-image median (0.949 vs 0.940 у бейзлайна), но просаживают канонический
-   mDice на ~1 пункт за счёт нескольких конкретных провалов. Возможный
-   следующий шаг — **более мягкие аугментации** (только flip + лёгкие color
-   jitter + лёгкий RandomCutOut с малой вероятностью), чтобы получить
-   per-image gain без потерь на хардкейсах.
+1. **Добавить негативные семплы с людьми** (фоновый класс) в train. Сейчас
+   в датасете 0 кадров без животных — модель никогда не видела «здесь нет
+   ни cat, ни dog, человек — это фон». Worst #0 и #4 прямо это и показывают:
+   модель ищет животное любой ценой и красит самый «живой» крупный объект.
+   Можно добавить кадров из COCO с людьми/мебелью без cat/dog как
+   background-only samples.
 
-2. **Ensemble** трёх обученных моделей (baseline + exp1 + exp3) через
-   усреднение probability-карт. Модели делают разные ошибки на разных
-   кадрах (per-class Dice расходятся на 1–3 пункта между моделями), поэтому
-   усреднение должно перекрыть индивидуальные провалы. Ожидаемый прирост
-   +0.5…+1.5 mDice.
+2. **Class-conditioning через двухстадийную модель**: сначала классификатор
+   определяет, что на кадре (cat / dog / both), потом сегментатор работает
+   только под уверенный класс. Это убирает confusion на worst #1–#3, где
+   контур правильный, а класс — нет.
 
-3. **Test-Time Augmentation** (`tta_model` в конфиге уже задан) — прогон
+3. **Полная очистка cat↔dog confusion в train** через model-assisted review:
+   найти train-семплы, где предсказание уверенно расходится с GT по классу,
+   проверить вручную. Это вариант Этапа 1, но с моделью-помощником —
+   мы планировали такой пайплайн в Этапе 1, но в итоге сделали только CVAT.
+
+4. **Эксп. 1 (strong augs)** показал лучший per-image median (0.949 vs 0.940
+   бейзлайна), но просел канонический mDice. Возможный компромисс — **более
+   мягкие аугментации** (только flip + лёгкий color jitter + редкий cutout),
+   чтобы получить per-image gain без хардкейс-провалов.
+
+5. **Ensemble** трёх обученных моделей (baseline + exp1 + exp3) через
+   усреднение probability-карт. Per-class Dice расходятся на 1–3 пункта между
+   моделями (см. таблицу Этапа 3) → ошибки декоррелированы, усреднение
+   обычно даёт +0.5…+1.5 mDice.
+
+6. **Test-Time Augmentation** (`tta_model` уже задан в конфиге) — прогон
    через горизонтальный flip и усреднение. Дёшево, ожидаемо +0.2…+0.5 mDice.
 
-4. **Доразметка val** в CVAT (мы её пропустили из экономии времени) — даст
-   более надёжный сигнал для `save_best` и убережёт от выбора чекпойнта,
+7. **Доразметка val** в CVAT (пропустили из экономии времени) — даст более
+   надёжный сигнал для `save_best` и уберёт risk выбора чекпойнта,
    переученного под несколько шумных val-кадров.
-
-5. **Pseudo-labeling** на test-сплите (semi-supervised): использовать
-   уверенные предсказания бейзлайна на test как дополнительный train-сигнал.
-   Рискованно (можно усилить собственные систематические ошибки), но при
-   аккуратной фильтрации по confidence может дать ещё +1 пункт.
-
-6. **Полная очистка cat↔dog confusion** через model-assisted review: найти
-   train-семплы, где предсказание модели уверенно расходится с GT по классу,
-   и проверить их вручную (часть таких — реально перепутанная разметка,
-   часть — модель). Это вариант Этапа 1, но с моделью-помощником.
 
 ## Этап 5. Документация кода
 
-<!-- TODO -->
+Структура сабмодуля `practicum_work/` и описание каждого скрипта:
+
+```
+practicum_work
+├── eda.ipynb
+│   - EDA Этапа 1: количества/размеры/баланс классов; mean/std для
+│     нормализации; обнаружение проблем разметки (грубая/маленькая/большая
+│     маска, перепутанный класс); визуальные монтажи cat/dog.
+│
+├── train.ipynb
+│   - оркестратор обучения бейзлайна Этапа 2 (DeepLabV3+ R50-d8):
+│     setup → sanity-check → train → per-image анализ на test.
+│     Содержит executed-outputs полного run (val mDice кривая 20 точек).
+│
+├── stage3.ipynb
+│   - оркестратор Этапа 3: train 3 экспериментов (augs/loss/R101)
+│     + финальная сравнительная test-таблица для baseline + 3 экспериментов.
+│     Содержит executed-outputs всех 4 моделей.
+│
+├── sanity_check.py
+│   - предобучающая проверка: парсит конфиг через mmengine.Config,
+│     инициализирует датасет (проверяет splits/train.txt), строит модель,
+│     прогоняет один forward и проверяет ClearMLVisBackend импортируется.
+│     Запускать ПЕРЕД tools/train.py на новой ВМ или после правки конфига.
+│
+├── setup_vm.sh
+│   - one-shot установка стека на ВМ Яндекс Практикума по точным версиям из
+│     урока «Получение ВМ»: torch 2.0.0+cu118 / mmcv==2.1.0 / numpy==1.26.4 /
+│     clearml==2.0.2 + наши доп. пакеты (opencv-python-headless, scipy,
+│     pycocotools для CVAT-скриптов).
+│
+├── src
+│   ├── data
+│   │   ├── mmsegmentation_to_coco.py
+│   │   │   - конвертация датасета mmseg (PNG-маски) → COCO с полигонами
+│   │   │     для загрузки в CVAT. Можно экспортировать выбранные семплы
+│   │   │     по списку файлов (для точечной доразметки).
+│   │   │
+│   │   ├── coco_to_mmsegmentation.py
+│   │   │   - обратная конвертация: COCO json (после CVAT) → PNG-маски
+│   │   │     в формате mmseg. Поддерживает polygon-аннотации.
+│   │   │
+│   │   ├── cvat_to_mmsegmentation.py
+│   │   │   - импорт из CVAT 1.1 XML (используется в нашем случае): polygon,
+│   │   │     RLE (SAM2), label `background` (= вычитание дырок).
+│   │   │     Двухпроходная отрисовка: сначала foreground, потом background
+│   │   │     поверх — чтобы порядок шейпов в XML не ломал семантику.
+│   │   │     Кадры без аннотаций исключаются (попадают в drop-список и
+│   │   │     не попадают в splits/train.txt).
+│   │   │
+│   │   └── find_label_issues.py
+│   │       - поиск подозрительных масок в train: считает edge-alignment
+│   │           (насколько граница маски ложится на реальные края объекта),
+│   │           ранжирует, выводит worst-N как кандидатов на доразметку.
+│   │           Использовался в Этапе 1 для отбора кадров на правку.
+│   │
+│   └── analysis
+│       └── per_image_dice.py
+│           - per-image метрики на любом сплите: для каждого кадра считает
+│             Dice по классам, сохраняет CSV `per_image_dice.csv` со всеми
+│             значениями + 5 best/5 worst PNG-триплетов (image | GT | pred).
+│             Используется в Этапах 2-4 для анализа качества и сбора примеров
+│             для отчёта.
+│
+└── supplementary
+    └── viz
+        - все визуализации, на которые ссылается README:
+          * class_distribution_pixel.png, samples_train.png — EDA Этапа 1
+          * montage_clean_{cat,dog}.png — train после CVAT-чистки
+          * cleanup_before_after.png, cleanup_dropped.png — до/после CVAT
+          * suspects_lowalign.png — кандидаты на доразметку из find_label_issues
+          * test_baseline/{best,worst}/ — best/worst test-предсказания
+            бейзлайна (Этап 4)
+          * test_exp{1,2,3}_*/{best,worst}/ — то же для 3 экспериментов
+```
+
+### Соглашения по mmseg-расширениям (не в `practicum_work/`, а в самом форке)
+
+* [`mmseg/datasets/practice_dataset.py`](mmseg/datasets/practice_dataset.py) —
+  кастомный `PracticeDataset(BaseSegDataset)` (классы `background`, `cat`,
+  `dog`, palette `[[0,0,0],[255,0,0],[0,255,0]]`). Зарегистрирован декоратором
+  `@DATASETS.register_module()`, импортируется в
+  [`mmseg/datasets/__init__.py`](mmseg/datasets/__init__.py), функции
+  `practice_dataset_classes()` / `practice_dataset_palette()` добавлены в
+  [`mmseg/utils/class_names.py`](mmseg/utils/class_names.py) (по конвенции
+  урока «Практика. Обучение UNet»).
+
+* [`configs/_base_/datasets/practice_dataset.py`](configs/_base_/datasets/practice_dataset.py) —
+  базовый dataset-конфиг (pipelines, dataloaders, mean/std из EDA, чтение
+  `splits/train.txt`).
+
+* [`configs/_base_/schedules/practice_schedule.py`](configs/_base_/schedules/practice_schedule.py) —
+  базовый schedule (100 эпох, SGD 0.01 PolyLR, `save_best="mDice"`).
+
+* [`configs/deeplabv3plus_practice/`](configs/deeplabv3plus_practice/) — 4
+  experiment-конфига (бейзлайн + 3 эксперимента). Каждый эксперимент
+  наследуется от бейзлайна и переопределяет ровно одну вещь.
+
+* [`configs/unet_practice/`](configs/unet_practice/) — UNet-конфиг,
+  написанный, но **не запущенный** (обоснование выбора одной DeepLab-гипотезы
+  см. в Этапе 2).
