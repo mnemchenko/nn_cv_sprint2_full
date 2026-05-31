@@ -42,13 +42,14 @@ def per_class_dice(pred: np.ndarray, gt: np.ndarray, num_classes: int):
 
 
 def predict(model, dataset, idx, device):
+    """Полный inference через test_step (он внутри сам зовёт data_preprocessor +
+    predict + post-process — не лезем в низкоуровневое encode_decode)."""
     sample = dataset[idx]
     img = sample["inputs"].unsqueeze(0).to(device).float()
     batch = dict(inputs=img, data_samples=[sample["data_samples"]])
-    batch = model.data_preprocessor(batch, training=False)
     with torch.no_grad():
-        seg_logits = model.encode_decode(batch["inputs"], batch["data_samples"])
-    return seg_logits.argmax(dim=1)[0].cpu().numpy().astype(np.uint8)
+        results = model.test_step(batch)
+    return results[0].pred_sem_seg.data[0].cpu().numpy().astype(np.uint8)
 
 
 def save_triplet(img_path, gt, pred, dice_mean, out_path):
