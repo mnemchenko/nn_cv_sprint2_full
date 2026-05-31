@@ -50,10 +50,17 @@ def main(cfg_path: str):
         feats = model.backbone(out["inputs"])
     print(f"[5/6] model forward: ok  (img {tuple(img.shape)} -> feats {[tuple(f.shape) for f in feats]})")
 
-    # 6) visualizer (включая ClearML)
-    visualizer = Runner.build_visualizer(cfg.visualizer)
-    backends = [type(b).__name__ for b in visualizer._vis_backends.values()]
-    print(f"[6/6] visualizer backends: {backends}")
+    # 6) visualizer — без реальной инициализации (иначе ClearMLVisBackend создаст
+    # лишний Task на app.clear.ml). Только сверяем конфиг + что класс импортируется.
+    backends = [b.get("type") for b in cfg.visualizer.get("vis_backends", [])]
+    print(f"[6/6] visualizer backends (из конфига): {backends}")
+    if "ClearMLVisBackend" in backends:
+        try:
+            from mmengine.visualization import ClearMLVisBackend  # noqa: F401
+            import clearml  # noqa: F401
+            print("       ClearMLVisBackend импортируется, clearml установлен — ok")
+        except ImportError as e:
+            print(f"       ⚠ ClearML недоступен: {e}")
 
     print("\nALL OK — можно запускать обучение:")
     print(f"  python tools/train.py {cfg_path}")
