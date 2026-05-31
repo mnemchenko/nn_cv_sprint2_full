@@ -55,3 +55,4 @@ keys.txt
 *.pem
 *.key
 clearml.conf
+user_key
