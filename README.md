@@ -190,9 +190,52 @@ R50-d8 — золотая середина: сильнее R18 (больше pre
 
 **Результаты обучения.**
 * Конфиг: [`configs/deeplabv3plus_practice/deeplabv3plus_r50-d8_1xb16-practice_dataset-256x256.py`](configs/deeplabv3plus_practice/deeplabv3plus_r50-d8_1xb16-practice_dataset-256x256.py)
-* ClearML: <!-- TODO: вставить публичную ссылку после запуска на ВМ -->
+* ClearML (публичный): <https://app.clear.ml/projects/775d31c748a9402b9db74de96679efee/experiments/af7d127b71534b5f93e91bd23903e7a5/output/execution>
+* Полный train-лог + outputs запусков сохранены в [`practicum_work/train.ipynb`](practicum_work/train.ipynb).
+* Лучший чекпойнт — `best_mDice_epoch_95.pth`.
 
-**Анализ качества.** <!-- TODO: после обучения — приложить метрики (mDice/per-class Dice), top/worst примеры через practicum_work/src/analysis/per_image_dice.py -->
+Динамика val mDice (валидация каждые 5 эпох, batch_size=16, 100 эпох ≈ 1200 итер):
+
+| epoch | 5 | 10 | 15 | 20 | 25 | 30 | 35 | 40 | 45 | 50 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **mDice val** | 68.6 | 85.0 | 86.2 | 86.7 | 85.9 | 87.7 | 86.9 | 81.1¹ | 87.9 | 85.6 |
+
+| epoch | 55 | 60 | 65 | 70 | 75 | 80 | 85 | 90 | **95** | 100 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **mDice val** | 88.4 | 87.8 | 88.0 | 88.8 | 89.0 | 89.1 | 88.5 | 89.0 | **89.07** | 88.9 |
+
+¹ — единичный outlier (необычный random-crop микс на эпохе); на следующей валидации возвращается на тренд.
+
+Закономерно для ImageNet-pretrain'a: +16 пунктов mDice за первые 10 эпох (адаптация
+головы), затем плато с шумом, последний участок Poly-LR даёт +1 пункт тонкой
+подгонки. Решение **не использовать EarlyStopping** оправдалось — patience=10 срезал
+бы как раз эти финальные +1 на dip'ах.
+
+**Анализ качества (на test, 120 семплов).** Прогнан через `tools/test.py` со штатной
+mmseg-метрикой `IoUMetric`:
+
+| Class | Dice | Acc | IoU |
+|---|---:|---:|---:|
+| background | 98.80 | 99.02 | 97.63 |
+| cat | 88.07 | 87.21 | 78.68 |
+| dog | 83.43 | 80.82 | 71.57 |
+| **mDice** | **90.10** | **aAcc 97.52** | **mIoU 82.63** |
+
+**Результат бейзлайна — mDice = 90.10 на test, что на +15.1 пункта выше проектной
+планки 0.75.** Cat'у модель сегментирует точнее dog (88 vs 83 Dice) — последний
+визуально вариативнее (терьеры, лабрадоры, овчарки и т.д.), да и в train семплов
+чуть меньше (87 vs 92 после CVAT-чистки).
+
+Параллельно посчитан per-image Dice через
+[`practicum_work/src/analysis/per_image_dice.py`](practicum_work/src/analysis/per_image_dice.py)
+(другая формула — Dice на каждой картинке → среднее): mean = 0.849, median = 0.940.
+Mean < median = распределение скошено к идеалу, основная масса картинок
+сегментируется отлично, тянут вниз ~5–10 «хардовых» (см. worst-примеры).
+
+**Примеры предсказаний модели** (image | GT | pred) — в
+[`practicum_work/supplementary/viz/test_baseline_deeplab/`](practicum_work/supplementary/viz/test_baseline_deeplab/):
+по 5 лучших и худших семплов по per-image mDice, плюс CSV с метрикой по каждому
+тестовому семплу.
 
 ### Запуск на ВМ
 
